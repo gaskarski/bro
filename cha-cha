@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Привет</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    height: 100%;
+    background: #000;
+    overflow: hidden;
+    font-family: system-ui, sans-serif;
+    cursor: pointer;
+  }
+
+  .hint {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #333;
+    font-size: 18px;
+    letter-spacing: 2px;
+    z-index: 1;
+    user-select: none;
+    animation: fade 2.4s ease-in-out infinite;
+  }
+
+  @keyframes fade {
+    0%, 100% { opacity: 0.3; }
+    50%      { opacity: 0.8; }
+  }
+
+  #scare {
+    position: fixed;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: #000;
+    z-index: 10;
+    overflow: hidden;
+  }
+
+  #scare img {
+    width: 110vw;
+    height: 110vh;
+    object-fit: cover;
+    animation: shake 0.07s linear infinite,
+               zoom 4s ease-out forwards;
+    filter: contrast(1.4) saturate(1.6);
+  }
+
+  @keyframes shake {
+    0%   { transform: translate(0, 0) rotate(0deg) scale(1.0); }
+    25%  { transform: translate(-14px, 8px) rotate(-1.2deg) scale(1.02); }
+    50%  { transform: translate(12px, -10px) rotate(1.1deg) scale(1.0); }
+    75%  { transform: translate(-8px, 14px) rotate(-0.8deg) scale(1.03); }
+    100% { transform: translate(10px, -6px) rotate(0.9deg) scale(1.0); }
+  }
+
+  @keyframes zoom {
+    from { transform: scale(1); }
+    to   { transform: scale(1.15); }
+  }
+
+  /* если картинки нет — вместо неё мигающий красный экран */
+  #scare.noimg {
+    background: #ff0000;
+    animation: redflash 0.06s linear infinite alternate;
+  }
+  @keyframes redflash {
+    from { background: #ff0000; }
+    to   { background: #000000; }
+  }
+</style>
+</head>
+<body>
+
+  <div class="hint">нажми в любом месте</div>
+
+  <div id="scare">
+    <img src="scare.jpg" alt="" onerror="document.getElementById('scare').classList.add('noimg'); this.remove();">
+  </div>
+
+<script>
+(() => {
+  const scare = document.getElementById('scare');
+  const hint = document.querySelector('.hint');
+  let fired = false;
+
+  // ---- резкий визгливый звук через Web Audio ----
+  function screech() {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    const ac = new AC();
+
+    const master = ac.createGain();
+    master.gain.value = 1.0;
+    master.connect(ac.destination);
+
+    // слой 1 — высокий скрежет
+    const o1 = ac.createOscillator();
+    o1.type = 'sawtooth';
+    o1.frequency.setValueAtTime(2400, ac.currentTime);
+    o1.frequency.linearRampToValueAtTime(600, ac.currentTime + 0.6);
+    o1.frequency.linearRampToValueAtTime(3200, ac.currentTime + 1.4);
+
+    const g1 = ac.createGain();
+    g1.gain.setValueAtTime(0.35, ac.currentTime);
+    g1.gain.linearRampToValueAtTime(0.15, ac.currentTime + 2.0);
+
+    // слой 2 — низкий грохот
+    const o2 = ac.createOscillator();
+    o2.type = 'square';
+    o2.frequency.value = 55;
+    const g2 = ac.createGain();
+    g2.gain.value = 0.5;
+
+    // слой 3 — шум (скрежет)
+    const buffer = ac.createBuffer(1, ac.sampleRate * 3, ac.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < data.length; i++) {
+      data[i] = (Math.random() * 2 - 1) * (1 - i / data.length);
+    }
+    const noise = ac.createBufferSource();
+    noise.buffer = buffer;
+
+    const filter = ac.createBiquadFilter();
+    filter.type = 'highpass';
+    filter.frequency.value = 1200;
+
+    const g3 = ac.createGain();
+    g3.gain.value = 0.4;
+
+    o1.connect(g1).connect(master);
+    o2.connect(g2).connect(master);
+    noise.connect(filter).connect(g3).connect(master);
+
+    const t = ac.currentTime;
+    master.gain.setValueAtTime(0, t);
+    master.gain.linearRampToValueAtTime(1.0, t + 0.05);
+    master.gain.setValueAtTime(1.0, t + 2.5);
+    master.gain.linearRampToValueAtTime(0, t + 3.2);
+
+    o1.start();
+    o2.start();
+    noise.start();
+
+    setTimeout(() => {
+      try { o1.stop(); o2.stop(); noise.stop(); ac.close(); } catch (e) {}
+    }, 3500);
+  }
+
+  function fire() {
+    if (fired) return;
+    fired = true;
+
+    hint.style.display = 'none';
+    scare.style.display = 'flex';
+
+    // вибрация на телефоне, если поддерживается
+    if (navigator.vibrate) navigator.vibrate([80, 40, 80, 40, 200, 60, 300]);
+
+    screech();
+
+    // авто-закрытие через 4 секунды, если не выключили
+    setTimeout(() => {
+      scare.style.display = 'none';
+      document.body.style.background = '#000';
+      const back = document.createElement('div');
+      back.className = 'hint';
+      back.textContent = 'обнови страницу';
+      back.style.display = 'flex';
+      document.body.appendChild(back);
+    }, 4000);
+  }
+
+  // попытка запустить сразу без клика (некоторые браузеры разрешают)
+  window.addEventListener('load', () => {
+    // если сайт открыли по прямой ссылке и браузер уже «разбужен» предыдущим сайтом — может сработать
+    setTimeout(() => {
+      if (document.visibilityState === 'visible' && window.self === window.top) {
+        // не форсим сразу — иначе закроют на первом заходе. оставляем клик как триггер
+      }
+    }, 100);
+  });
+
+  // любой клик/тап/скролл/движение мыши — триггер
+  ['click', 'touchstart', 'keydown', 'wheel', 'mousemove'].forEach(ev => {
+    document.addEventListener(ev, fire, { once: true, passive: true });
+  });
+})();
+</script>
+</body>
+</html>
